@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 
@@ -22,6 +23,10 @@ def main() -> int:
     errors: list[str] = []
     if sys.version_info < (3, 10):
         errors.append("Python 3.10 以上が必要です。")
+
+    for module in ("pypdf", "openpyxl", "docx"):
+        if find_spec(module) is None:
+            errors.append(f"必要なPythonパッケージがありません: {module}")
 
     for directory in REQUIRED_DIRECTORIES:
         if not (PROJECT_ROOT / directory).is_dir():

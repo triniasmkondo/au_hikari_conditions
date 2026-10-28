@@ -1,6 +1,6 @@
 # auひかり条件表更新・配信管理システム
 
-P0フェーズの初期セットアップです。現段階では標準ライブラリのみを使用し、データモデルの骨組みと環境確認を提供します。
+P0のデータモデルと、P1の原本読み取り・項目候補抽出・上位条件比較の基盤です。P1は未承認IDや業務判断が必要な候補を保留し、代理店向け帳票生成や配信は行いません。
 
 ## 構成
 
@@ -16,23 +16,26 @@ P0フェーズの初期セットアップです。現段階では標準ライブ
 - `tests/`: スモークテスト
 - `docs/`: 設計・運用ドキュメント
 
-02〜06のフォルダー名とモデル項目は、仕様書の詳細を確認後に確定してください。成果項目ID辞書は実IDを推測せず、空の登録先として定義しています。
+成果項目ID辞書のP1項目IDは暫定です。正式ID、正規化規則、10月原本の優先関係は設計書承認後に確定してください。
 
 ## 環境確認
 
 Python 3.10以降を用意し、リポジトリルートで実行します。
 
 ```powershell
-python scripts/check_environment.py
-python -m unittest discover -s tests
+py -m pip install -e .
+py scripts/check_environment.py
+py -m unittest discover -s tests
 ```
 
 パッケージとしてインストールする場合:
 
 ```powershell
-python -m pip install -e .
+py scripts/run_p1_analysis.py
 ```
 
-## P0モデル
+P1解析結果はJSONで標準出力されます。現在の入力資料に対する完了ゲートが未達の場合、このコマンドは終了コード1を返します。
 
-`src/au_hikari_conditions/models.py` に `SourceDocument`、`ConditionItem`、`Agency`、`DeliverableItemDefinition` と `DELIVERABLE_ITEM_ID_DICTIONARY` を定義しています。仕様確定前の骨組みのため、業務ルールや永続化処理は含みません。
+## P0/P1モデルと解析
+
+`src/au_hikari_conditions/models.py` に `SourceDocument`、`ConditionItem`、`Agency`、`DeliverableItemDefinition` と `DELIVERABLE_ITEM_ID_DICTIONARY` を定義しています。`document_reader.py` はPDFページ、Excelシート/セル、Word段落/表セルの根拠位置を保持します。`normalization.py` と `comparison.py` は候補抽出・正規化と保留付き差分を行います。金額確定、代理店報酬計算、帳票生成、メール送信は対象外です。
