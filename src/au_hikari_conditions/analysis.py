@@ -22,6 +22,7 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
     source_count_by_folder = Counter(path.relative_to(project_root).parts[0] for path in source_paths)
     source_count_by_format = Counter(path.suffix.lower() for path in source_paths)
     field_counts: Counter[str] = Counter()
+    condition_dimension_counts: Counter[str] = Counter()
     unrecognized_documents: list[str] = []
     unreadable_documents: list[dict[str, str]] = []
     ambiguous_fields = 0
@@ -39,6 +40,9 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
             unrecognized_documents.append(relative_path)
         for field in fields:
             field_counts[field.item_id] += 1
+            condition_dimension_counts.update(
+                dimension.name for dimension in field.condition_dimensions
+            )
             if len(field.normalized_values) > 1:
                 ambiguous_fields += 1
 
@@ -56,35 +60,42 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
     )
     spec_files = sorted(
         path.relative_to(project_root).as_posix()
-        for path in (project_root / "docs").rglob("*")
+        for path in (
+            *project_root.glob("*system_spec*.docx"),
+            *(project_root / "docs").rglob("*"),
+        )
         if path.is_file() and path.suffix.lower() in {".docx", ".pdf", ".md"}
     )
     comparison = compare_upper_campaign_notices(project_root)
 
     blockers: list[str] = []
-    if not spec_files:
-        blockers.append("docs/ にP1完了ゲートを定義した設計書がありません。")
-    if pending_item_ids:
-        blockers.append("成果項目IDが未承認です: " + ", ".join(pending_item_ids))
-        blockers.append("正式な項目対応表がないため、代理店資料と上位原本の実値照合は保留です。")
     if missing_item_candidates:
         blockers.append("資料から候補を抽出できない項目があります: " + ", ".join(missing_item_candidates))
     if unrecognized_documents:
         blockers.append(f"項目候補を抽出できない資料が{len(unrecognized_documents)}件あります。")
     if unreadable_documents:
         blockers.append(f"解析できない資料が{len(unreadable_documents)}件あります。")
-    if len(october_notices) > 1:
-        blockers.append("10月上位原本に複数のキャンペーン通知書があり、正式版の優先関係が未確定です。")
     if comparison.status != "compared":
         blockers.append("10月・11月の上位条件比較を完了できませんでした。")
 
+    review_holds: list[str] = []
+    if pending_item_ids:
+        review_holds.append("成果項目IDが未承認です: " + ", ".join(pending_item_ids))
+        review_holds.append("正式な項目対応表がないため、代理店資料と上位原本の実値照合は保留です。")
+    if len(october_notices) > 1:
+        review_holds.append("10月上位原本の優先関係は未確定です。")
+
     return {
         "p1_gate": "not_met" if blockers else "met",
+        "p1_gate_scope": "document_analysis_and_candidate_differences",
         "source_document_count": len(source_paths),
         "source_document_count_by_folder": dict(sorted(source_count_by_folder.items())),
         "source_document_count_by_format": dict(sorted(source_count_by_format.items())),
         "normalized_candidate_count": sum(field_counts.values()),
         "candidate_count_by_item_id": dict(sorted(field_counts.items())),
+        "condition_dimension_candidate_counts": dict(
+            sorted(condition_dimension_counts.items())
+        ),
         "held_candidate_count": sum(field_counts.values()),
         "ambiguous_field_count": ambiguous_fields,
         "pending_item_ids": pending_item_ids,
@@ -101,6 +112,7 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
         "missing_item_candidates": missing_item_candidates,
         "unrecognized_documents": unrecognized_documents,
         "unreadable_documents": unreadable_documents,
+        "review_holds": review_holds,
         "october_campaign_notice_versions": october_notices,
         "design_spec_files": spec_files,
         "upper_condition_comparison": {

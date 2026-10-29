@@ -6,3 +6,32 @@ venv/
 build/
 dist/
 .env
+.env.*
+
+# Business source documents, generated artifacts, and audit records are not Git assets.
+01_上位原本/*
+!01_上位原本/.gitkeep
+!01_上位原本/README.md
+03_条件表/*
+!03_条件表/.gitkeep
+!03_条件表/README.md
+04_成果物/*
+!04_成果物/.gitkeep
+!04_成果物/README.md
+07_監査ログ/*
+!07_監査ログ/.gitkeep
+!07_監査ログ/README.md
+au_hikari_conditions_system_spec_v1.docx
+
+# Keep only the blank schema template in the input folder; extraction results are sensitive.
+02_取得データ/*
+!02_取得データ/.gitkeep
+!02_取得データ/README.md
+!02_取得データ/承認済み業務データ入力テンプレート_v3.xlsx
+!02_取得データ/承認済み業務データ入力テンプレート_v4.xlsx
+
+# Delivery records are real operational data; only the fictional sample is tracked.
+05_配信管理/*
+!05_配信管理/.gitkeep
+!05_配信管理/README.md
+!05_配信管理/配信管理入力テンプレート_架空サンプル_v3.xlsx

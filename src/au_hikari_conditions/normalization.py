@@ -32,6 +32,12 @@ CLAWBACK_PATTERN = re.compile(r"戻入|返還|返金|相殺|取戻")
 
 
 @dataclass(frozen=True)
+class ConditionDimension:
+    name: str
+    values: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class NormalizedField:
     item_id: str
     raw_value: str
@@ -40,6 +46,7 @@ class NormalizedField:
     location: str
     status: str
     hold_reasons: tuple[str, ...]
+    condition_dimensions: tuple[ConditionDimension, ...] = ()
 
 
 def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
@@ -49,8 +56,14 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
     fields: list[NormalizedField] = []
 
     for index, (block, text) in enumerate(zip(blocks, normalized_blocks)):
-        contexts = normalized_blocks[max(0, index - 1) : index + 2]
+        region = _context_region(block)
+        contexts = [
+            normalized_blocks[context_index]
+            for context_index in range(max(0, index - 1), min(len(blocks), index + 2))
+            if _context_region(blocks[context_index]) == region
+        ]
         context = " ".join(contexts)
+        condition_dimensions = _extract_condition_dimensions(text)
 
         if PERIOD_LABEL_PATTERN.search(context):
             matches = list(DATE_RANGE_PATTERN.finditer(text))
@@ -67,6 +80,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                         text,
                         values,
                         "日付範囲の候補です。期間の優先関係は自動判断しません。",
+                        condition_dimensions,
                     )
                 )
 
@@ -86,6 +100,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                     text,
                     providers,
                     "ISP表記候補です。ISP別の条件適用は自動判断しません。",
+                    condition_dimensions,
                 )
             )
 
@@ -106,6 +121,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                         text,
                         amounts,
                         "金額候補です。対象サービス・税区分・適用条件は要照合です。",
+                        condition_dimensions,
                     )
                 )
 
@@ -117,6 +133,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                     text,
                     (text.strip(),),
                     "成果条件文の候補です。条件の充足判定は行いません。",
+                    condition_dimensions,
                 )
             )
 
@@ -128,6 +145,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                     text,
                     (text.strip(),),
                     "ラダー候補です。閾値と報酬の組み合わせは要照合です。",
+                    condition_dimensions,
                 )
             )
 
@@ -139,6 +157,7 @@ def normalize_blocks(blocks: list[EvidenceBlock]) -> list[NormalizedField]:
                     text,
                     (text.strip(),),
                     "戻入候補です。対象・期間・上限は自動判断しません。",
+                    condition_dimensions,
                 )
             )
 
@@ -151,6 +170,7 @@ def _field(
     raw_value: str,
     normalized_values: tuple[str, ...],
     reason: str,
+    condition_dimensions: tuple[ConditionDimension, ...] = (),
 ) -> NormalizedField:
     definition = DELIVERABLE_ITEM_ID_DICTIONARY[item_id]
     reasons = [reason]
@@ -166,4 +186,66 @@ def _field(
         location=block.location,
         status="hold",
         hold_reasons=tuple(reasons),
+        condition_dimensions=condition_dimensions,
     )
+
+
+def _context_region(block: EvidenceBlock) -> str:
+    location = block.location
+    if location.startswith("page:"):
+        return location
+    if location.startswith("sheet:"):
+        return location.split(";cells:", maxsplit=1)[0]
+    if location.startswith("table:"):
+        return location.split(";row:", maxsplit=1)[0]
+    if location.startswith("paragraph:"):
+        return "paragraphs"
+    return location
+
+
+def _extract_condition_dimensions(text: str) -> tuple[ConditionDimension, ...]:
+    dimension_patterns: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+        (
+            "product_family",
+            (
+                (r"au\s*ひかり\s*プラス", "auひかりプラス"),
+                (r"au\s*ひかり(?!\s*プラス)", "auひかり"),
+            ),
+        ),
+        (
+            "plus_type",
+            tuple((rf"プラス\s*{number}", f"プラス{number}") for number in ("1", "2", "3"))
+            + tuple((f"プラス{number}", f"プラス{number}") for number in ("①", "②", "③")),
+        ),
+        (
+            "isp",
+            (
+                (r"So-net", "So-net"),
+                (r"BIGLOBE", "BIGLOBE"),
+                (r"@nifty", "@nifty"),
+            ),
+        ),
+        ("dwelling_type", ((r"ホーム", "ホーム"), (r"マンション", "マンション"))),
+        ("speed", ((r"(?<!\d)10\s*G", "10G"), (r"(?<!\d)1\s*G", "1G"))),
+        (
+            "trigger",
+            (
+                (r"申込", "申込"),
+                (r"開通", "開通"),
+                (r"5G", "5G"),
+                (r"FTTH", "FTTH"),
+            ),
+        ),
+        (
+            "access_type",
+            ((r"事業者変更", "事業者変更"), (r"新規", "新規")),
+        ),
+    )
+    dimensions: list[ConditionDimension] = []
+    for name, patterns in dimension_patterns:
+        values = tuple(
+            value for pattern, value in patterns if re.search(pattern, text, re.IGNORECASE)
+        )
+        if values:
+            dimensions.append(ConditionDimension(name=name, values=values))
+    return tuple(dimensions)
