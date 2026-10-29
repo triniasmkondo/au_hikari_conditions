@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -8,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from openpyxl import load_workbook
+from docx import Document
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -23,6 +28,9 @@ from au_hikari_conditions.p5 import (
     load_approved_mail_settings,
     prepare_monthly_batch,
 )
+from au_hikari_conditions.monthly_bridge import build_monthly_comparison_workbook
+import run_p5
+import prepare_monthly_comparison
 from prepare_input_workbooks import create_delivery_template
 from test_p2_integration import AGENCY_ID, _build_fixture
 
@@ -61,9 +69,35 @@ class P5IntegrationTest(unittest.TestCase):
         self.approval_path = self.root / "monthly-approval.xlsx"
         self.candidate_directory = self.root / "approval-candidates"
         self.final_directory = self.root / "approved-distribution"
-        self.project_root = PROJECT_ROOT
+        self.comparison_path = self.root / "monthly-comparison.xlsx"
         _build_fixture(self.input_path)
+        self.project_root = self._create_monthly_comparison()
         self._create_delivery_master()
+
+    def _create_monthly_comparison(self) -> Path:
+        source_root = self.root / "comparison-sources"
+        source_folders = (
+            source_root / "01_上位原本" / "2026-10",
+            source_root / "03_条件表" / "2026-10",
+            source_root / "01_上位原本" / "2026-11",
+        )
+        contents = (
+            "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 100円/件",
+            "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 80円/件",
+            "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 120円/件",
+        )
+        for index, (folder, content) in enumerate(zip(source_folders, contents)):
+            folder.mkdir(parents=True)
+            document = Document()
+            document.add_paragraph(content)
+            document.save(folder / f"fictional-source-{index}.docx")
+        build_monthly_comparison_workbook(
+            project_root=source_root,
+            previous_period="2026-10",
+            target_period=PERIOD,
+            output_path=self.comparison_path,
+        )
+        return source_root
 
     def test_fictional_template_master_is_not_treated_as_approved(self) -> None:
         create_delivery_template(self.master_path)
@@ -131,6 +165,7 @@ class P5IntegrationTest(unittest.TestCase):
                 project_root=self.project_root,
                 approved_input_path=self.input_path,
                 p2_result_path=self.p2_path,
+                monthly_comparison_path=self.comparison_path,
                 target_period=PERIOD,
                 batch_id=BATCH_ID,
                 delivery_workbook_path=self.master_path,
@@ -179,6 +214,7 @@ class P5IntegrationTest(unittest.TestCase):
                 project_root=self.project_root,
                 approved_input_path=self.input_path,
                 p2_result_path=self.p2_path,
+                monthly_comparison_path=self.comparison_path,
                 target_period=PERIOD,
                 batch_id=BATCH_ID,
                 delivery_workbook_path=self.master_path,
@@ -239,6 +275,163 @@ class P5IntegrationTest(unittest.TestCase):
             )
         self.assertEqual(len(client.payloads), 1)
 
+    def test_cli_prepare_human_approval_finalize_with_mock_draft(self) -> None:
+        synthetic_project = self.root / "synthetic-project"
+        previous_upper = synthetic_project / "01_上位原本" / "2026-10"
+        previous_agency = synthetic_project / "03_条件表" / "2026-10"
+        current_upper = synthetic_project / "01_上位原本" / "2026-11"
+        previous_upper.mkdir(parents=True)
+        previous_agency.mkdir(parents=True)
+        current_upper.mkdir(parents=True)
+        (synthetic_project / "01_上位原本" / "2026-11" / "fictional-source.txt").write_text(
+            "Synthetic source placeholder; not parsed by this test.",
+            encoding="utf-8",
+        )
+        for folder, filename, content in (
+            (
+                previous_upper,
+                "fictional-previous-upper.docx",
+                "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 100円/件",
+            ),
+            (
+                previous_agency,
+                "fictional-agency-conditions.docx",
+                "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 80円/件",
+            ),
+            (
+                current_upper,
+                "fictional-current-upper.docx",
+                "auひかりプラス BIGLOBE ホーム 1G 新規 開通 報奨金額 120円/件",
+            ),
+        ):
+            document = Document()
+            document.add_paragraph(content)
+            document.save(folder / filename)
+
+        comparison_path = self.root / "monthly-comparison-cli.xlsx"
+        comparison_stdout = io.StringIO()
+        with (
+            patch.object(prepare_monthly_comparison, "PROJECT_ROOT", synthetic_project),
+            contextlib.redirect_stdout(comparison_stdout),
+        ):
+            comparison_exit = prepare_monthly_comparison.main(
+                [
+                    "--previous-period",
+                    "2026-10",
+                    "--target-period",
+                    PERIOD,
+                    "--output",
+                    str(comparison_path),
+                ]
+            )
+        self.assertEqual(comparison_exit, 2)
+        comparison = json.loads(comparison_stdout.getvalue())
+        self.assertEqual(comparison["status"], "REVIEW_REQUIRED")
+        self.assertTrue(comparison_path.is_file())
+
+        prepare_stdout = io.StringIO()
+        with (
+            patch.object(run_p5, "PROJECT_ROOT", synthetic_project),
+            patch(
+                "au_hikari_conditions.p5.build_p1_report",
+                return_value={"p1_gate": "met"},
+            ),
+            contextlib.redirect_stdout(prepare_stdout),
+        ):
+            self.assertEqual(
+                run_p5.main(
+                    [
+                        "prepare",
+                        "--target-period",
+                        PERIOD,
+                        "--batch-id",
+                        BATCH_ID,
+                        "--approved-input",
+                        str(self.input_path),
+                        "--p2-result",
+                        str(self.p2_path),
+                        "--monthly-comparison",
+                        str(comparison_path),
+                        "--delivery-workbook",
+                        str(self.master_path),
+                        "--approval-workbook",
+                        str(self.approval_path),
+                        "--candidate-directory",
+                        str(self.candidate_directory),
+                        "--requested-by",
+                        "anonymous-operator",
+                    ]
+                ),
+                0,
+            )
+        self.assertEqual(
+            json.loads(prepare_stdout.getvalue())["phase"],
+            "AWAITING_HUMAN_QA_AND_APPROVAL",
+        )
+        self.assertTrue(self.p2_path.is_file())
+        self.assertTrue(self.approval_path.is_file())
+        self.assertEqual(len(list(self.candidate_directory.glob("*"))), 2)
+
+        self._approve()
+        draft_client = MockDraftClient()
+        finalize_stdout = io.StringIO()
+        with (
+            patch.object(run_p5, "PROJECT_ROOT", synthetic_project),
+            patch(
+                "au_hikari_conditions.p5.build_p1_report",
+                return_value={"p1_gate": "met"},
+            ),
+            patch.object(
+                run_p5.ZohoMailConfig,
+                "from_secret_provider",
+                return_value=object(),
+            ),
+            patch.object(run_p5, "ZohoMailClient", return_value=draft_client),
+            patch.dict(
+                os.environ,
+                {
+                    "P5_ZOHO_DRAFTS_APPROVED": "YES",
+                    "P5_DRAFT_HISTORY_DB": str(self.root / "draft-history.sqlite3"),
+                },
+            ),
+            contextlib.redirect_stdout(finalize_stdout),
+        ):
+            self.assertEqual(
+                run_p5.main(
+                    [
+                        "finalize",
+                        "--target-period",
+                        PERIOD,
+                        "--batch-id",
+                        BATCH_ID,
+                        "--approved-input",
+                        str(self.input_path),
+                        "--p2-result",
+                        str(self.p2_path),
+                        "--monthly-comparison",
+                        str(comparison_path),
+                        "--delivery-workbook",
+                        str(self.master_path),
+                        "--approval-workbook",
+                        str(self.approval_path),
+                        "--candidate-directory",
+                        str(self.candidate_directory),
+                        "--final-directory",
+                        str(self.final_directory),
+                        "--save-drafts",
+                    ]
+                ),
+                0,
+            )
+        final_result = json.loads(finalize_stdout.getvalue())
+        self.assertEqual(final_result["phase"], "DRAFTS_CREATED")
+        self.assertEqual(final_result["agency_count"], 1)
+        self.assertEqual(final_result["draft_count"], 1)
+        self.assertEqual(len(list(self.final_directory.glob("*"))), 2)
+        self.assertEqual(len(draft_client.uploaded), 2)
+        self.assertEqual(len(draft_client.payloads), 1)
+        self.assertEqual(draft_client.payloads[0]["mode"], "draft")
+
     def test_p1_blocker_stops_before_writing_downstream_artifacts(self) -> None:
         with patch(
             "au_hikari_conditions.p5.build_p1_report",
@@ -249,6 +442,7 @@ class P5IntegrationTest(unittest.TestCase):
                     project_root=self.project_root,
                     approved_input_path=self.input_path,
                     p2_result_path=self.p2_path,
+                    monthly_comparison_path=self.comparison_path,
                     target_period=PERIOD,
                     batch_id=BATCH_ID,
                     delivery_workbook_path=self.master_path,
@@ -284,6 +478,29 @@ class P5IntegrationTest(unittest.TestCase):
         with self.assertRaisesRegex(P5Error, "master changed"):
             self._finalize()
         self.assertFalse(self.final_directory.exists())
+
+    def test_change_in_monthly_comparison_after_request_invalidates_snapshot(self) -> None:
+        self._prepare()
+        self._approve()
+        workbook = load_workbook(self.comparison_path)
+        worksheet = workbook["上位差分候補"]
+        worksheet.cell(2, 6, '["tampered-candidate"]')
+        workbook.save(self.comparison_path)
+        workbook.close()
+
+        with self.assertRaisesRegex(P5Error, "Approval record no longer matches"):
+            self._finalize()
+        self.assertFalse(self.final_directory.exists())
+
+    def test_change_in_source_document_after_comparison_blocks_prepare(self) -> None:
+        source = next(
+            (self.project_root / "01_上位原本" / "2026-11").glob("*.docx")
+        )
+        source.write_bytes(source.read_bytes() + b"changed")
+        with self.assertRaisesRegex(P5Error, "Monthly comparison evidence"):
+            self._prepare()
+        self.assertFalse(self.p2_path.exists())
+        self.assertFalse(self.approval_path.exists())
 
     def test_candidate_tampering_is_rejected_before_final_output(self) -> None:
         prepared = self._prepare()

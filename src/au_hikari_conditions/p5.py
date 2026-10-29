@@ -17,6 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 from .analysis import build_p1_report
+from .monthly_bridge import MonthlyBridgeError, validate_monthly_comparison_workbook
 from .p2 import calculate_workbook, write_report
 from .p3 import (
     GeneratedAgencyArtifacts,
@@ -234,6 +235,7 @@ def prepare_monthly_batch(
     project_root: Path,
     approved_input_path: Path,
     p2_result_path: Path,
+    monthly_comparison_path: Path,
     target_period: str,
     batch_id: str,
     delivery_workbook_path: Path,
@@ -246,15 +248,23 @@ def prepare_monthly_batch(
         raise P5Error("Requester identity must use a safe ASCII identifier.")
     _require_external_path(approved_input_path, "Approved P2 input")
     _require_external_path(p2_result_path, "P2 result")
+    _require_external_path(monthly_comparison_path, "Monthly comparison workbook")
     _require_external_path(delivery_workbook_path, "Distribution management workbook")
     _require_external_path(approval_workbook_path, "Approval workbook")
     _require_external_path(candidate_directory, "Approval candidate directory")
     if p2_result_path.exists() or approval_workbook_path.exists():
         raise P5Error("Refusing to overwrite an existing P2 result or approval workbook.")
 
-    p1_report = build_p1_report(project_root)
+    p1_report = build_p1_report(
+        project_root,
+        previous_period=_previous_period(target_period),
+        target_period=target_period,
+    )
     if p1_report.get("p1_gate") != "met":
         raise P5Error("P1 source analysis has blockers; downstream processing is stopped.")
+    _validate_monthly_comparison(
+        monthly_comparison_path, project_root, target_period
+    )
     report = calculate_workbook(approved_input_path, target_period)
     write_report(report, p2_result_path)
     if not report.results or report.hold_count:
@@ -277,7 +287,9 @@ def prepare_monthly_batch(
     )
     if p3_report.status != "APPROVAL_CANDIDATES_NOT_APPROVED_FOR_DELIVERY":
         raise P5Error("P3 did not produce approval-only candidates.")
-    source_hash = _file_hash(approved_input_path)
+    source_hash = _monthly_source_snapshot_hash(
+        approved_input_path, monthly_comparison_path
+    )
     requests: list[P5ApprovalRequest] = []
     for artifacts in p3_report.artifacts:
         settings = load_approved_mail_settings(
@@ -332,6 +344,7 @@ def finalize_approved_monthly_batch(
     project_root: Path,
     approved_input_path: Path,
     p2_result_path: Path,
+    monthly_comparison_path: Path,
     target_period: str,
     batch_id: str,
     delivery_workbook_path: Path,
@@ -343,15 +356,23 @@ def finalize_approved_monthly_batch(
     for path, label in (
         (approved_input_path, "Approved P2 input"),
         (p2_result_path, "P2 result"),
+        (monthly_comparison_path, "Monthly comparison workbook"),
         (delivery_workbook_path, "Distribution management workbook"),
         (approval_workbook_path, "Approval workbook"),
         (candidate_directory, "Approval candidate directory"),
         (final_directory, "Final distribution directory"),
     ):
         _require_external_path(path, label)
-    p1_report = build_p1_report(project_root)
+    p1_report = build_p1_report(
+        project_root,
+        previous_period=_previous_period(target_period),
+        target_period=target_period,
+    )
     if p1_report.get("p1_gate") != "met":
         raise P5Error("P1 source analysis has blockers; finalization is stopped.")
+    _validate_monthly_comparison(
+        monthly_comparison_path, project_root, target_period
+    )
     p2_report = calculate_workbook(approved_input_path, target_period)
     if not p2_report.results or p2_report.hold_count:
         raise P5Error("P2 has held or empty results; finalization is stopped.")
@@ -395,7 +416,9 @@ def finalize_approved_monthly_batch(
         raise P5Error("Monthly approvals do not cover exactly the current P2 agencies.")
 
     validated_approvals: list[_ValidatedApproval] = []
-    source_hash = _file_hash(approved_input_path)
+    source_hash = _monthly_source_snapshot_hash(
+        approved_input_path, monthly_comparison_path
+    )
     for approval in rows:
         agency_id = _text(approval.get("agency_id"))
         _validate_period_and_ids(target_period, agency_id)
@@ -958,6 +981,41 @@ def _month_range(target_period: str) -> tuple[date, date]:
         raise P5Error("Target period must use YYYY-MM format.")
     year, month = (int(value) for value in target_period.split("-"))
     return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
+
+
+def _validate_monthly_comparison(
+    path: Path, project_root: Path, target_period: str
+) -> None:
+    try:
+        validate_monthly_comparison_workbook(
+            path,
+            project_root=project_root,
+            previous_period=_previous_period(target_period),
+            target_period=target_period,
+        )
+    except MonthlyBridgeError as error:
+        raise P5Error(
+            "Monthly comparison evidence is missing, incomplete, or mismatched."
+        ) from error
+
+
+def _previous_period(target_period: str) -> str:
+    target_start, _ = _month_range(target_period)
+    if target_start.month == 1:
+        return f"{target_start.year - 1:04d}-12"
+    return f"{target_start.year:04d}-{target_start.month - 1:02d}"
+
+
+def _monthly_source_snapshot_hash(
+    approved_input_path: Path, monthly_comparison_path: Path
+) -> str:
+    snapshot = {
+        "approved_p2_input_sha256": _file_hash(approved_input_path),
+        "monthly_comparison_sha256": _file_hash(monthly_comparison_path),
+    }
+    return hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _validate_period_and_ids(target_period: str, *identifiers: str) -> None:

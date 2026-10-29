@@ -38,6 +38,12 @@ def _add_common_inputs(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="P2 result workbook outside the repository",
     )
+    parser.add_argument(
+        "--monthly-comparison",
+        type=Path,
+        required=True,
+        help="Unapproved previous/current source comparison workbook outside the repository",
+    )
 
 
 def _add_finalize_paths(parser: argparse.ArgumentParser) -> None:
@@ -115,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 project_root=PROJECT_ROOT,
                 approved_input_path=arguments.approved_input,
                 p2_result_path=arguments.p2_result,
+                monthly_comparison_path=arguments.monthly_comparison,
                 target_period=arguments.target_period,
                 batch_id=arguments.batch_id,
                 delivery_workbook_path=arguments.delivery_workbook,
@@ -139,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             project_root=PROJECT_ROOT,
             approved_input_path=arguments.approved_input,
             p2_result_path=arguments.p2_result,
+            monthly_comparison_path=arguments.monthly_comparison,
             target_period=arguments.target_period,
             batch_id=arguments.batch_id,
             delivery_workbook_path=arguments.delivery_workbook,

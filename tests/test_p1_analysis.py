@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +81,73 @@ class P1SourceAnalysisTest(unittest.TestCase):
         self.assertEqual(
             periods[0].normalized_values,
             ("2026-11-01/2026-11-30",),
+        )
+
+    def test_upper_comparison_accepts_months_other_than_initial_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            previous_directory = root / "01_上位原本" / "2027-01"
+            target_directory = root / "01_上位原本" / "2027-02"
+            previous_directory.mkdir(parents=True)
+            target_directory.mkdir(parents=True)
+            previous_file = previous_directory / "previous_キャンペーン通知書.pdf"
+            target_file = target_directory / "current_キャンペーン通知書.pdf"
+            previous_file.write_bytes(b"synthetic-pdf")
+            target_file.write_bytes(b"synthetic-pdf")
+            with patch(
+                "au_hikari_conditions.comparison.read_document",
+                return_value=[
+                    EvidenceBlock(
+                        source_path="synthetic.pdf",
+                        location="page:1",
+                        text="auひかりプラス BIGLOBE 開通 報奨金額 100円/件",
+                    )
+                ],
+            ):
+                comparison = compare_upper_campaign_notices(
+                    root,
+                    previous_period="2027-01",
+                    target_period="2027-02",
+                )
+
+        self.assertEqual(comparison.status, "compared")
+        self.assertEqual(
+            comparison.previous_path,
+            "01_上位原本/2027-01/previous_キャンペーン通知書.pdf",
+        )
+        self.assertEqual(
+            comparison.current_path,
+            "01_上位原本/2027-02/current_キャンペーン通知書.pdf",
+        )
+
+    def test_p1_analysis_limits_documents_to_previous_and_target_periods(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_paths = (
+                root / "01_上位原本" / "2027-01" / "previous_キャンペーン通知書.pdf",
+                root / "01_上位原本" / "2027-02" / "current_キャンペーン通知書.pdf",
+                root / "03_条件表" / "2027-01" / "previous-agency.docx",
+                root / "01_上位原本" / "2026-12" / "historical.docx",
+                root / "03_条件表" / "2027-02" / "not-yet-generated.docx",
+            )
+            for path in source_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"synthetic")
+
+            with (
+                patch("au_hikari_conditions.analysis.read_document", return_value=[]),
+                patch("au_hikari_conditions.comparison.read_document", return_value=[]),
+            ):
+                report = build_p1_report(
+                    root,
+                    previous_period="2027-01",
+                    target_period="2027-02",
+                )
+
+        self.assertEqual(report["source_document_count"], 3)
+        self.assertEqual(
+            report["source_document_count_by_folder"],
+            {"01_上位原本": 2, "03_条件表": 1},
         )
 
     def test_reads_pdf_excel_and_word_with_evidence_locations(self) -> None:

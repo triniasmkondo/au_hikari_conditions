@@ -12,11 +12,20 @@ from .normalization import normalize_blocks
 SUPPORTED_SUFFIXES = {".pdf", ".xlsx", ".docx"}
 
 
-def build_p1_report(project_root: Path) -> dict[str, object]:
+def build_p1_report(
+    project_root: Path,
+    previous_period: str = "2026-10",
+    target_period: str = "2026-11",
+) -> dict[str, object]:
+    source_directories = (
+        project_root / "01_上位原本" / previous_period,
+        project_root / "01_上位原本" / target_period,
+        project_root / "03_条件表" / previous_period,
+    )
     source_paths = sorted(
         path
-        for folder in ("01_上位原本", "03_条件表")
-        for path in (project_root / folder).rglob("*")
+        for directory in source_directories
+        for path in directory.rglob("*")
         if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
     )
     source_count_by_folder = Counter(path.relative_to(project_root).parts[0] for path in source_paths)
@@ -54,9 +63,11 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
     missing_item_candidates = sorted(
         item_id for item_id in DELIVERABLE_ITEM_ID_DICTIONARY if not field_counts[item_id]
     )
-    october_notices = sorted(
+    previous_notices = sorted(
         path.relative_to(project_root).as_posix()
-        for path in (project_root / "01_上位原本" / "2026-10").glob("*キャンペーン通知書*.pdf")
+        for path in (
+            project_root / "01_上位原本" / previous_period
+        ).glob("*キャンペーン通知書*.pdf")
     )
     spec_files = sorted(
         path.relative_to(project_root).as_posix()
@@ -66,7 +77,11 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
         )
         if path.is_file() and path.suffix.lower() in {".docx", ".pdf", ".md"}
     )
-    comparison = compare_upper_campaign_notices(project_root)
+    comparison = compare_upper_campaign_notices(
+        project_root,
+        previous_period=previous_period,
+        target_period=target_period,
+    )
 
     blockers: list[str] = []
     if missing_item_candidates:
@@ -76,14 +91,18 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
     if unreadable_documents:
         blockers.append(f"解析できない資料が{len(unreadable_documents)}件あります。")
     if comparison.status != "compared":
-        blockers.append("10月・11月の上位条件比較を完了できませんでした。")
+        blockers.append(
+            f"{previous_period}・{target_period}の上位条件比較を完了できませんでした。"
+        )
 
     review_holds: list[str] = []
     if pending_item_ids:
         review_holds.append("成果項目IDが未承認です: " + ", ".join(pending_item_ids))
         review_holds.append("正式な項目対応表がないため、代理店資料と上位原本の実値照合は保留です。")
-    if len(october_notices) > 1:
-        review_holds.append("10月上位原本の優先関係は未確定です。")
+    if len(previous_notices) > 1:
+        review_holds.append(
+            f"{previous_period}上位原本の優先関係は未確定です。"
+        )
 
     return {
         "p1_gate": "not_met" if blockers else "met",
@@ -100,20 +119,24 @@ def build_p1_report(project_root: Path) -> dict[str, object]:
         "ambiguous_field_count": ambiguous_fields,
         "pending_item_ids": pending_item_ids,
         "agency_to_upper_matching": {
-            "status": "held" if pending_item_ids else "ready",
+            "status": "held",
             "agency_document_count": source_count_by_folder.get("03_条件表", 0),
-            "matched_field_count": 0 if pending_item_ids else None,
+            "matched_field_count": 0,
             "hold_reason": (
-                "正式な成果項目IDと上位原本との対応規則が未承認です。"
-                if pending_item_ids
-                else None
+                "代理店ID・商材・プラン・ISP・適用条件の照合規則と対応結果は"
+                "未承認です。項目IDの承認だけでは代理店条件との一致を確定できません。"
             ),
         },
         "missing_item_candidates": missing_item_candidates,
         "unrecognized_documents": unrecognized_documents,
         "unreadable_documents": unreadable_documents,
         "review_holds": review_holds,
-        "october_campaign_notice_versions": october_notices,
+        "previous_campaign_notice_versions": previous_notices,
+        "october_campaign_notice_versions": (
+            previous_notices if previous_period == "2026-10" else []
+        ),
+        "previous_period": previous_period,
+        "target_period": target_period,
         "design_spec_files": spec_files,
         "upper_condition_comparison": {
             "status": comparison.status,

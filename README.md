@@ -44,6 +44,25 @@ py scripts/prepare_input_workbooks.py
 
 10月代理店資料と11月上位原本からの候補ブックには実データが含まれるため、`.gitignore`対象です。会社承認済みのGit外保管先へ移し、候補の承認前に支払額を確定しないでください。このコマンドは既存ファイルを上書きしません。配信管理ブックの送付先・本文例は架空の`example.invalid`であり、実送信やZoho接続は行いません。
 
+### 月次P1比較からP2入力への引継ぎ
+
+会社が承認したローカル環境で、前月上位原本・前月代理店帳票・当月上位原本の3種類を比較候補ブックにまとめます。出力には根拠抜粋とファイルハッシュが含まれるため、入力資料と同じ会社承認済みGit外領域へ保存してください。既存ファイルは上書きしません。
+
+```powershell
+py scripts/prepare_monthly_comparison.py `
+  --previous-period 2026-10 `
+  --target-period 2026-11 `
+  --output "C:\company-approved\2026-11\monthly-comparison.xlsx"
+```
+
+ブックの`抽出根拠候補`にP1の候補値・条件軸・根拠位置、`上位差分候補`に前月/当月上位原本の差分候補、`P2項目対応`にv4入力列との対応案と不足する社内承認データ、`不足・保留`に欠落・曖昧・重複を記録します。終了コード2でも比較ブックは作成済みの場合があります。JSONの状態とブック内の保留を確認し、人手レビューを継続してください。候補はすべて未承認です。
+
+代理店名だけで条件を対応付けません。前月代理店帳票の`agency_id`、商品/プラン/ISP、住居・速度・申込区分・適用期間を担当者が確認し、条件軸がない・複数一致・読取不能なら保留します。粗利・直接原価・各税区分・前回確定報酬・代理店例外・掲載可否は上位原本だけでは確定しないため、承認済み社内根拠から別途入力が必要です。ラダーは現行P2入力スキーマに専用列がなく、ルールの設計・承認まで計算保留です。
+
+この比較処理はP2の承認済み列へ値を自動転記しません。P2の金額行には代理店ID、正式項目ID、承認済み条件対応、税区分、根拠、ハッシュ付き承認が必要で、原本候補だけからそれらを一意に決められないためです。担当者は比較ブックを根拠索引にし、v4の`粗利原価`、`条件対応`、`代理店別例外`、`前回条件`へレビュー済みデータを転記し、`承認管理`に承認証跡を記録します。承認前の候補値を`APPROVED`へ変更してはなりません。
+
+`prepare_monthly_comparison.py`はP1の現行抽出器を前月上位・前月代理店・当月上位の各資料群へ適用し、上位原本間は明示的に抽出された条件軸が一致する候補だけを比較します。条件軸不足・同一キー重複・資料欠落・読取不能は候補ブックに保留として残します。P5の`prepare`/`finalize`には`--monthly-comparison`が必須で、対象期間・3資料群・元ファイルのSHA-256を再検証します。比較ブックのハッシュも月次承認Snapshotへ含め、prepare後の比較結果または元資料の変更を拒否します。
+
 ## P0/P1/P2モデルと解析
 
 `src/au_hikari_conditions/models.py` に `SourceDocument`、`ConditionItem`、`Agency`、`DeliverableItemDefinition` と `DELIVERABLE_ITEM_ID_DICTIONARY` を定義しています。`document_reader.py` はPDFページ、Excelシート/セル、Word段落/表セルの根拠位置を保持します。`normalization.py` は成果項目候補に加えて、資料内で確認できる商材・プラス種別・ISP・住居種別・速度・申込／開通区分などの条件軸候補を抽出します。条件軸は候補の根拠位置とともに保留され、PDFページやExcelシートをまたいだ文脈補完は行いません。`comparison.py` は保留付き差分を行います。金額確定、代理店報酬計算、帳票生成、メール送信は対象外です。
@@ -88,7 +107,34 @@ P4-Bの自動テストは匿名ファイルとモックAPIだけを使います�
 
 ### P5 月次統合運用
 
-`scripts/run_p5.py` の `prepare` は、リポジトリ内 `01_上位原本/`・`03_条件表/` のP1ゲート、承認済みP2入力、P2計算、P3承認候補生成、承認済み配信管理Excelの宛先/テンプレートを連続検証し、月次承認行を追加した別Excelを作ります。P1 blocker、P2保留、未承認/期限切れ宛先・テンプレート、本文/宛先不整合があれば停止します。P1の`review_holds`は業務承認済みを意味しません。P2の承認済み入力が別途必要です。
+`scripts/run_p5.py` の `prepare` は、前月比較ブック、リポジトリ内のP1ゲート、承認済みP2入力、P2計算、P3承認候補生成、承認済み配信管理Excelの宛先/テンプレートを連続検証し、月次承認行を追加した別Excelを作ります。前月比較ブックは`prepare_monthly_comparison.py`で生成したGit外ブックを`--monthly-comparison`に指定します。P1 blocker、資料ハッシュ不一致、P2保留、未承認/期限切れ宛先・テンプレート、本文/宛先不整合があれば停止します。P1の`review_holds`は業務承認済みを意味しません。P2の承認済み入力が別途必要です。
+
+#### 毎月の担当者チェックリスト
+
+1. **原本を配置（担当者）**: 前月の上位原本・代理店別条件表、当月上位原本を各`01_上位原本\YYYY-MM\`、`03_条件表\YYYY-MM\`へ置きます。P1が比較する上位キャンペーン通知書を各月1件に特定できるようにし、元ファイルは変更しません。
+2. **前月比較を作成（自動）・確認（担当者）**: 上記`prepare_monthly_comparison.py`を実行し、出力ブックをGit外に保存します。抽出エラー・不足資料・複数一致・条件軸不明を確認し、代理店IDと条件対応を手動でレビューします。未解決項目は保留のままです。
+3. **P2入力Excelを準備（担当者）**: [`承認済み業務データ入力テンプレート_v4.xlsx`](./02_取得データ/承認済み業務データ入力テンプレート_v4.xlsx)を会社承認済みのGit外作業領域へコピーし、比較ブックを根拠索引に、粗利・原価・税区分・条件対応・代理店別例外・前回条件を入力します。承認管理の状態、承認者、タイムゾーン付き承認日時、理由、レコードハッシュを整備します。不明値は推測せず、承認済み根拠がなければP2を停止します。
+4. **配信管理Excelを準備（担当者）**: [`配信管理入力テンプレート_架空サンプル_v3.xlsx`](./05_配信管理/配信管理入力テンプレート_架空サンプル_v3.xlsx)の構造を参考に、会社承認済みGit外の配信管理Excelを準備します。代理店ID・社名・宛先・CC・送信元・宛名・件名/本文テンプレート・有効期間・承認状態を確認してください。架空サンプルの宛先・本文を実運用に流用しないでください。
+5. **prepareを実行（自動）**: 以下の例の全パスをGit外の会社承認済み領域へ置き換えて実行します。`--monthly-comparison`には手順2の比較ブックを指定します。P2結果、承認依頼Excel、P3候補が新規作成されます。既存ファイルを指定しないでください。
+
+```powershell
+py scripts/run_p5.py prepare `
+  --target-period 2026-11 `
+  --batch-id batch-2026-11-run01 `
+  --approved-input "C:\company-approved\2026-11\p2-input.xlsx" `
+  --p2-result "C:\company-approved\2026-11\run01\p2-result.xlsx" `
+  --monthly-comparison "C:\company-approved\2026-11\monthly-comparison.xlsx" `
+  --delivery-workbook "C:\company-approved\distribution\delivery-master.xlsx" `
+  --approval-workbook "C:\company-approved\2026-11\run01\monthly-approval.xlsx" `
+  --candidate-directory "C:\company-approved\2026-11\run01\approval-candidates" `
+  --requested-by operator-identifier
+```
+
+6. **候補をQA・承認（担当者／承認者）**: 各代理店のExcel/Word候補、P2結果、前月比較ブックと月次承認表を照合します。代理店、対象月、金額・適用条件、掲載内容、宛先、CC、送信元、件名/本文、Excel/Word両添付を確認します。問題がなければ対象行の`qa_status=PASSED`、`approval_status=APPROVED`、`approved_by`、タイムゾーン付きISO-8601の`approved_at`、`approval_reason`を入力します。ハッシュ列は変更しません。不一致・保留・不明があれば承認せず、修正後は新しい`batch-id`で最初から実行します。
+7. **finalizeを実行（自動）**: P2入力・前月比較ブック・元資料ハッシュ・宛先/本文・候補のSnapshotを再照合し、すべて一致した場合だけ候補と同じ内容をGit外の最終配布先へ昇格します。通常の配布準備では`--save-drafts`を付けず、最終帳票を人が再確認します。
+8. **下書き作成（別途会社承認後のみ）**: Zohoの必要スコープ・対象アカウント・データ利用の会社承認が確認済みの場合に限り、承認された実行環境で`--save-drafts`を付けます。下書き保存後、人がZoho画面で宛先・本文・添付を確認し、メール送信は社内手順に沿って人が行います。P5に送信機能はありません。
+
+**匿名E2Eの再実行**: `py -m unittest tests.test_p5_integration.P5IntegrationTest.test_cli_prepare_human_approval_finalize_with_mock_draft` は一時領域に作った架空の前月原本・代理店条件・当月原本から比較CLIを実行し、P2入力、P5の`prepare`→模擬人手承認→`finalize --save-drafts`までを確認します。P1ゲートはテスト内で合格状態を注入し、Zohoクライアントはモックへ置換するため、実原本解析、実トークン、実API、実データ、メール送信は行いません。実運用の原本解析・承認判断を代替するテストではありません。
 
 ```powershell
 py scripts/run_p5.py prepare `
@@ -96,6 +142,7 @@ py scripts/run_p5.py prepare `
   --batch-id batch-2026-11 `
   --approved-input "C:\company-approved\2026-11\p2-input.xlsx" `
   --p2-result "C:\company-approved\2026-11\p2-result.xlsx" `
+  --monthly-comparison "C:\company-approved\2026-11\monthly-comparison.xlsx" `
   --delivery-workbook "C:\company-approved\distribution\delivery-master.xlsx" `
   --approval-workbook "C:\company-approved\2026-11\monthly-approval.xlsx" `
   --candidate-directory "C:\company-approved\2026-11\approval-candidates" `
@@ -112,6 +159,7 @@ py scripts/run_p5.py finalize `
   --batch-id batch-2026-11 `
   --approved-input "C:\company-approved\2026-11\p2-input.xlsx" `
   --p2-result "C:\company-approved\2026-11\p2-result.xlsx" `
+  --monthly-comparison "C:\company-approved\2026-11\monthly-comparison.xlsx" `
   --delivery-workbook "C:\company-approved\distribution\delivery-master.xlsx" `
   --approval-workbook "C:\company-approved\2026-11\monthly-approval.xlsx" `
   --candidate-directory "C:\company-approved\2026-11\approval-candidates" `

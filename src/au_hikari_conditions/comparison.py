@@ -83,17 +83,24 @@ def compare_fields(
     )
 
 
-def compare_upper_campaign_notices(project_root: Path) -> DocumentComparison:
+def compare_upper_campaign_notices(
+    project_root: Path,
+    previous_period: str = "2026-10",
+    target_period: str = "2026-11",
+) -> DocumentComparison:
     upper_root = project_root / "01_上位原本"
-    previous = list((upper_root / "2026-10").glob("*_キャンペーン通知書_20261002修正.pdf"))
-    current = list((upper_root / "2026-11").glob("*_キャンペーン通知書_20261028追加.pdf"))
+    previous = list((upper_root / previous_period).glob("*キャンペーン通知書*.pdf"))
+    current = list((upper_root / target_period).glob("*キャンペーン通知書*.pdf"))
     if len(previous) != 1 or len(current) != 1:
         return DocumentComparison(
             status="unverified",
             previous_path=previous[0].relative_to(project_root).as_posix() if previous else None,
             current_path=current[0].relative_to(project_root).as_posix() if current else None,
             differences=(),
-            hold_reason="比較対象の10月修正版または11月追加版を一意に特定できません。",
+            hold_reason=(
+                f"比較対象の{previous_period}版または{target_period}版を"
+                "一意に特定できません。"
+            ),
         )
 
     previous_blocks = read_document(previous[0], project_root=project_root)

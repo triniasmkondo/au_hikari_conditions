@@ -23,6 +23,13 @@ from .models import (
     SourceDocument,
     ValueType,
 )
+from .monthly_bridge import (
+    MonthlyBridgeError,
+    MonthlyBridgeReport,
+    MonthlyComparisonValidation,
+    build_monthly_comparison_workbook,
+    validate_monthly_comparison_workbook,
+)
 from .p2 import (
     P2AgencyResult,
     P2InputError,
@@ -111,6 +118,9 @@ __all__ = [
     "LadderResult",
     "LadderScenario",
     "LadderTier",
+    "MonthlyBridgeError",
+    "MonthlyBridgeReport",
+    "MonthlyComparisonValidation",
     "P2AgencyResult",
     "P2InputError",
     "P2Report",
@@ -141,6 +151,7 @@ __all__ = [
     "ZohoServiceError",
     "calculate_agency_reward",
     "calculate_workbook",
+    "build_monthly_comparison_workbook",
     "compute_record_hash",
     "delivery_idempotency_key",
     "generate_agency_documents",
@@ -154,4 +165,5 @@ __all__ = [
     "save_draft",
     "simulate_ladder",
     "write_report",
+    "validate_monthly_comparison_workbook",
 ]
