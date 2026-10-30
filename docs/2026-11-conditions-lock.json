@@ -1,0 +1,18 @@
+{
+  "schema": "condition-lock-receipt-v1",
+  "period": "2026-11",
+  "state": "LOCKED",
+  "agency_count": 10,
+  "document_count": 20,
+  "excluded_agencies": [
+    "New Island株式会社"
+  ],
+  "lock_directory": "04_成果物/2026-11_LOCK",
+  "manifest_sha256": "eb8fe70bb18237534ea99f6dffb7ea97c4e8ef130ee020004f05321464b9b3f2",
+  "approval_sha256": "7e7f783e6df1348b4b4887b7736c79f03837e9a808c7056be5460d4458b791ce",
+  "amounts_sha256": "bc52a641a84f02c28eea00e31de0d9753f71b40f51cb5a0957bdcc79791c17c6",
+  "approval_source": "ユーザーによる本会話での明示承認",
+  "recorded_at": "2026-10-30T11:05:10.774758+00:00",
+  "email_send_approved": false,
+  "business_documents_tracked_in_git": false
+}
