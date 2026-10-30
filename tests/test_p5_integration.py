@@ -387,6 +387,7 @@ class P5IntegrationTest(unittest.TestCase):
                 return_value=object(),
             ),
             patch.object(run_p5, "ZohoMailClient", return_value=draft_client),
+            patch.object(run_p5, "DpapiSecretProvider", return_value=object()),
             patch.dict(
                 os.environ,
                 {

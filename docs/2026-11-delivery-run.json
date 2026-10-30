@@ -1,0 +1,17 @@
+{
+  "schema": "monthly-draft-run-receipt-v1",
+  "period": "2026-11",
+  "condition_agency_count": 10,
+  "locked_word_count": 20,
+  "derived_pdf_count": 20,
+  "draft_created_count": 10,
+  "unique_draft_count": 10,
+  "automated_send_count": 0,
+  "manual_send_status": "Controlled by the user in Zoho; not inferred from draft creation history",
+  "lock_manifest_sha256": "eb8fe70bb18237534ea99f6dffb7ea97c4e8ef130ee020004f05321464b9b3f2",
+  "prepared_sha256": "a29d9289ee12268f75fa3f9bae3f36b4e541c5429c702a9ab6ad75759bf2b55c",
+  "attachment_name_change_policy": "Save draft and require manual review; retain original and returned names",
+  "api_readback_status": "Deferred; user confirmed first draft in browser",
+  "verification": "190 tests passed with 3 Windows-only skips; final locked-delivery subset 14 passed",
+  "recorded_at": "2026-10-30T12:40:24.233860+00:00"
+}

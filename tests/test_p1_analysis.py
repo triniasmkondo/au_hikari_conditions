@@ -151,7 +151,7 @@ class P1SourceAnalysisTest(unittest.TestCase):
         )
 
     def test_reads_pdf_excel_and_word_with_evidence_locations(self) -> None:
-        pdf_path = next((PROJECT_ROOT / "01_上位原本" / "2026-10").glob("*キャンペーン通知書.pdf"))
+        pdf_path = next((PROJECT_ROOT / "01_上位原本" / "2026-10").glob("*キャンペーン通知書*.pdf"))
         xlsx_path = next((PROJECT_ROOT / "03_条件表" / "2026-10").glob("*条件表通知表.xlsx"))
         docx_path = next((PROJECT_ROOT / "03_条件表" / "2026-10").glob("*.docx"))
 
@@ -216,14 +216,14 @@ class P1SourceAnalysisTest(unittest.TestCase):
     def test_p1_gate_can_pass_while_unapproved_decisions_remain_held(self) -> None:
         report = build_p1_report(PROJECT_ROOT)
 
-        self.assertEqual(report["source_document_count"], 37)
+        self.assertEqual(report["source_document_count"], 36)
         self.assertEqual(
             report["source_document_count_by_folder"],
-            {"01_上位原本": 5, "03_条件表": 32},
+            {"01_上位原本": 4, "03_条件表": 32},
         )
         self.assertEqual(
             report["source_document_count_by_format"],
-            {".docx": 11, ".pdf": 5, ".xlsx": 21},
+            {".docx": 11, ".pdf": 4, ".xlsx": 21},
         )
         self.assertEqual(report["pending_item_ids"], sorted(DELIVERABLE_ITEM_ID_DICTIONARY))
         self.assertTrue(report["condition_dimension_candidate_counts"]["isp"])

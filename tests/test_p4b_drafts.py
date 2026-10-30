@@ -377,5 +377,26 @@ class P4BDraftTest(unittest.TestCase):
             )
 
 
+class CompanySubjectRuleTest(unittest.TestCase):
+    def test_company_subject_exactly_matches_confirmed_rule(self):
+        from au_hikari_conditions.locked_delivery import render_company_subject
+        self.assertEqual(
+            render_company_subject("2026-11", "keioh株式会社"),
+            "【202611】【keioh株式会社様】auひかり(AL商流)/auひかりプラス_条件表通知表",
+        )
+
+    def test_individual_and_existing_honorifics_never_duplicate(self):
+        from au_hikari_conditions.locked_delivery import render_company_subject
+        for name in ("高橋大地", "高橋大地様", "高橋大地 様", "高橋大地様様"):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    render_company_subject("2026-11", name),
+                    "【202611】【高橋大地様】auひかり(AL商流)/auひかりプラス_条件表通知表",
+                )
+        self.assertEqual(
+            render_company_subject("2026-11", "株式会社J&C 御中"),
+            "【202611】【株式会社J&C様】auひかり(AL商流)/auひかりプラス_条件表通知表",
+        )
+
 if __name__ == "__main__":
     unittest.main()

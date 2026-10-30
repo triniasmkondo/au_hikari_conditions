@@ -205,6 +205,10 @@ def calculate_workbook(input_path: Path, target_period: str) -> P2Report:
     period_start, period_end = _parse_target_period(target_period)
     workbook = load_workbook(input_path, read_only=True, data_only=True)
     try:
+        campaign_rows = []
+        if "キャンペーン階層" in workbook.sheetnames:
+            from .campaign_workbook import CAMPAIGN_HEADERS, CAMPAIGN_SHEET
+            campaign_rows = _read_sheet(workbook, CAMPAIGN_SHEET, CAMPAIGN_HEADERS)
         sheets = {
             sheet_name: _read_sheet(workbook, sheet_name, headers)
             for sheet_name, headers in _REQUIRED_SHEETS.items()
@@ -264,6 +268,18 @@ def calculate_workbook(input_path: Path, target_period: str) -> P2Report:
                 ("粗利原価の代理店・成果項目または有効期間が不足／不正です。対象月を判定できません。",),
             )
         )
+
+    # Tier rows are not ordinary fixed rewards. Never allow the legacy P2/P3
+    # path to flatten them or publish prices without a qualified count scenario.
+    for row in campaign_rows:
+        overlaps = _row_overlaps(row, "valid_from", "valid_until", period_start, period_end)
+        if overlaps is not False:
+            results.append(_held_result(
+                target_period,
+                _text(row.get("agency_id")) or "(agency_id missing)",
+                _text(row.get("condition_item_id")) or _text(row.get("record_id")) or "(campaign item missing)",
+                ("キャンペーン階層は専用の報酬設計エンジンで検証してください。通常P2/P3への自動確定・帳票反映は行いません。",),
+            ))
 
     return P2Report(target_period=target_period, results=tuple(results))
 

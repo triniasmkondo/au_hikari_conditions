@@ -21,6 +21,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from au_hikari_conditions.document_reader import read_document
 from au_hikari_conditions.normalization import normalize_blocks
+from au_hikari_conditions.campaign_workbook import CAMPAIGN_HEADERS, CAMPAIGN_SHEET
 
 
 SOURCE_SUFFIXES = {".pdf", ".xlsx", ".docx"}
@@ -368,13 +369,16 @@ def _add_instructions_sheet(workbook: Workbook, rows: tuple[str, ...]) -> None:
         worksheet.row_dimensions[row[0].row].height = 34
 
 
-def create_approved_input_template(path: Path) -> None:
+def create_approved_input_template(path: Path, *, include_campaigns: bool = False) -> None:
     workbook = Workbook()
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
     _add_instructions_sheet(workbook, INPUT_SHEETS["使い方"])
+    input_sheets = dict(INPUT_SHEETS)
+    if include_campaigns:
+        input_sheets[CAMPAIGN_SHEET] = CAMPAIGN_HEADERS
     for index, (sheet_name, headers) in enumerate(
-        (item for item in INPUT_SHEETS.items() if item[0] != "使い方"),
+        (item for item in input_sheets.items() if item[0] != "使い方"),
         start=1,
     ):
         worksheet = workbook.create_sheet(sheet_name)
